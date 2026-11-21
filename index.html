@@ -326,7 +326,11 @@
             <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
                 <div class="flex items-center gap-2 text-sm text-slate-600">
                     <i class="fa-solid fa-circle-check text-emerald-600 text-lg"></i>
-                    <span>Try Out 30 soal selesai! Silakan unduh laporan hasil evaluasi dalam format PDF.</span>
+                    <span>Try Out 30 soal selesai!</span>
+                    <span id="sheets-sync-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span>Menyiapkan pengiriman ke Google Sheets...</span>
+                    </span>
                 </div>
                 <div class="flex items-center gap-2.5">
                     <button id="btn-retry" class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs sm:text-sm hover:bg-slate-50 transition flex items-center gap-2">
@@ -1211,6 +1215,10 @@
         // STATE APLIKASI & PENYIMPANAN SESI (sessionStorage)
         // =========================================================
         const STORAGE_PREFIX = 'tka_matematika_30soal_v2_';
+        // Ganti URL di bawah ini dengan Web App URL hasil Deploy Google Apps Script
+        const SHEETS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzyjdKXk-pp1s-susjTM61B1N2zn2TM5JynPmeBgXvH2SPxyPas51xy81DhieNDNa6LvQ/exec';
+        const MAPEL_CODE = 'MATEMATIKA';
+        const MAPEL_LABEL = 'Matematika';
         const ACTIVE_SESSION_KEY = STORAGE_PREFIX + 'active_nisn';
 
         let studentData = {
@@ -1662,6 +1670,34 @@
                 predikatEl.innerHTML = `: <span class="text-rose-600">Perlu Bimbingan Intensif (D)</span>`;
             }
 
+            const predikatTextPlain = rawScore >= 90
+                ? 'Sangat Baik (A) — Siap TKA!'
+                : rawScore >= 75
+                    ? 'Baik (B) — Pertahankan!'
+                    : rawScore >= 60
+                        ? 'Cukup (C) — Perlu Latihan Tambahan'
+                        : 'Perlu Bimbingan Intensif (D)';
+
+            if (shouldSave) {
+                submitResultsToGoogleSheets({
+                    mapel: MAPEL_CODE,
+                    mapelLabel: MAPEL_LABEL,
+                    tanggalTampil: now.toLocaleDateString('id-ID', optionsDate),
+                    nisn: studentData.nisn,
+                    nama: studentData.nama,
+                    kelas: studentData.kelas,
+                    sekolah: 'SDN Kapuk 01',
+                    score: Number(finalScore),
+                    predikat: predikatTextPlain,
+                    correctCount: correctCount,
+                    wrongCount: wrongCount,
+                    emptyCount: emptyCount,
+                    domainStats: domainStats,
+                    displayOrderIds: activeQuestions.map(item => item.id),
+                    answersById: userAnswersById
+                });
+            }
+
             // Render Analisis Domain
             const domainContainer = document.getElementById('domain-analysis');
             domainContainer.innerHTML = '';
@@ -1747,6 +1783,57 @@
                         </div>
                     </div>
                 `;
+            });
+        }
+
+        // =========================================================
+        // INTEGRASI PENGIRIMAN HASIL KE GOOGLE SHEETS (APPS SCRIPT)
+        // =========================================================
+        function updateSheetsBadge(statusType, text) {
+            const badge = document.getElementById('sheets-sync-badge');
+            if (!badge) return;
+
+            const styles = {
+                pending: 'bg-amber-50 text-amber-700 border-amber-200',
+                success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                error: 'bg-rose-50 text-rose-700 border-rose-200',
+                unconfigured: 'bg-slate-100 text-slate-600 border-slate-200'
+            };
+            const icons = {
+                pending: 'fa-spinner fa-spin',
+                success: 'fa-circle-check',
+                error: 'fa-triangle-exclamation',
+                unconfigured: 'fa-circle-info'
+            };
+
+            badge.className = `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${styles[statusType] || styles.unconfigured}`;
+            badge.innerHTML = `<i class="fa-solid ${icons[statusType] || icons.unconfigured}"></i><span>${text}</span>`;
+        }
+
+        function submitResultsToGoogleSheets(payload) {
+            if (!SHEETS_WEB_APP_URL || SHEETS_WEB_APP_URL.trim() === '') {
+                updateSheetsBadge('unconfigured', 'URL Google Sheets belum diisi');
+                return;
+            }
+
+            updateSheetsBadge('pending', 'Mengirim hasil ke Google Sheets...');
+
+            fetch(SHEETS_WEB_APP_URL.trim(), {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'text/plain;charset=utf-8'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(() => {
+                updateSheetsBadge('success', 'Terkirim ke Google Sheets');
+                showToast('Hasil try out berhasil dikirim ke Google Sheets!', 'success');
+            })
+            .catch((err) => {
+                console.error('Gagal mengirim ke Google Sheets:', err);
+                updateSheetsBadge('error', 'Gagal kirim ke Google Sheets');
+                showToast('Gagal mengirim ke Google Sheets. Unduh PDF sebagai cadangan.', 'error');
             });
         }
 
